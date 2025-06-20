@@ -1,7 +1,6 @@
 import streamlit as st
 from datetime import datetime
 
-
 st.set_page_config(
     layout="wide",
     page_title="Личный дневник с эмоциональной окраской текста",
@@ -142,4 +141,3 @@ with col2:
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
-
