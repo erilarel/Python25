@@ -1,97 +1,129 @@
-from typing import Sequence, Any
+from __future__ import annotations
+
+"""Асинхронный репозиторий + сериализация для фронта.
+Если задать as_dict=True, методы вернут готовый словарь (JSON-ready),
+иначе — «сырой» ORM-объект Note.
+"""
+
+from typing import Sequence, Any, TypedDict, overload
+from datetime import datetime
+
 from sqlalchemy import select, update, delete
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from .models import Note
 
+
+# ───────────────────────── DTO ──────────────────────────
+class NoteDTO(TypedDict):
+    """Сериализованный формат заметки, который удобно отдавать во фронт/API."""
+    id: int
+    created_at: str      # ISO-строка
+    updated_at: str
+    text: str
+    audio_path: str | None
+    emotion: str
+    score: float | None
+    source: str
+
+
+# ───────────────────── Репозиторий ──────────────────────
 class NoteRepository:
     """
-    Асинхронный репозиторий для работы с таблицей 'notes'.
-    Предоставляет чистый интерфейс для CRUD-операций (create, read, update, delete).
-    Использует асинхронную сессию SQLAlchemy.
+    CRUD-обёртка для таблицы *notes*.
+
+    • По-умолчанию возвращает ORM-объект Note.
+    • Передайте as_dict=True — получите NoteDTO (dict) для Streamlit/REST.
     """
 
     def __init__(self, session: AsyncSession):
-        """
-        Инициализация репозитория с заданной асинхронной сессией.
-        Один экземпляр — одна сессия (рекомендуется: session-per-request).
-        """
         self.session = session
 
-    async def add(
-            self,
-            *,
-            text: str,
-            emotion: str,
-            score: float | None = None,
-            source: str = "voice",
-            audio_path: str | None = None,
-    ) -> Note:
-        """
-        Добавить новую заметку в БД.
-        :param text: основной текст заметки (обязателен)
-        :param emotion: распознанная эмоция (обязателен)
-        :param score: уровень уверенности ML (0..1, опционально)
-        :param source: источник заметки (voice, edit, import и т.д.)
-        :param audio_path: путь к аудиофайлу (если был)
-        :return: созданный объект Note с заполненным id и датами
-        """
-        note = Note(
-            text=text,
-            emotion=emotion,
-            score=score,
-            source=source,
-            audio_path=audio_path
+    # ───────── helpers ─────────
+    @staticmethod
+    def _to_dto(note: Note) -> NoteDTO:
+        iso = lambda dt: dt.isoformat(sep="T", timespec="seconds") if isinstance(dt, datetime) else None  # noqa: E731
+        return NoteDTO(
+            id=note.id,
+            created_at=iso(note.created_at),
+            updated_at=iso(note.updated_at),
+            text=note.text,
+            audio_path=note.audio_path,
+            emotion=note.emotion,
+            score=note.score,
+            source=note.source,
         )
+
+    # ───────── add ─────────
+    @overload
+    async def add(self, *, text: str, emotion: str, score: float | None = None,
+                  source: str = "voice", audio_path: str | None = None,
+                  as_dict: bool = False) -> Note: ...
+
+    @overload
+    async def add(self, *, text: str, emotion: str, score: float | None = None,
+                  source: str = "voice", audio_path: str | None = None,
+                  as_dict: bool = True) -> NoteDTO: ...
+
+    async def add(self, *, text: str, emotion: str, score: float | None = None,
+                  source: str = "voice", audio_path: str | None = None,
+                  as_dict: bool = False):   # type: ignore[override]
+        note = Note(text=text, emotion=emotion, score=score,
+                    source=source, audio_path=audio_path)
         self.session.add(note)
         await self.session.commit()
-        await self.session.refresh(note)  # обновляем поля из БД (id, created_at...)
-        return note
+        await self.session.refresh(note)
+        return self._to_dto(note) if as_dict else note
 
-    async def get(self, note_id: int) -> Note | None:
-        """
-        Получить заметку по id.
-        :param note_id: идентификатор записи
-        :return: объект Note или None, если не найден
-        """
+    # ───────── get ─────────
+    @overload
+    async def get(self, note_id: int, *, as_dict: bool = False) -> Note | None: ...
+
+    @overload
+    async def get(self, note_id: int, *, as_dict: bool = True) -> NoteDTO | None: ...
+
+    async def get(self, note_id: int, *, as_dict: bool = False):  # type: ignore[override]
+        res = await self.session.execute(select(Note).where(Note.id == note_id))
+        note = res.scalar_one_or_none()
+        if note is None:
+            return None
+        return self._to_dto(note) if as_dict else note
+
+    # ───────── list ─────────
+    @overload
+    async def list(self, *, limit: int = 20, offset: int = 0,
+                   as_dict: bool = False) -> Sequence[Note]: ...
+
+    @overload
+    async def list(self, *, limit: int = 20, offset: int = 0,
+                   as_dict: bool = True) -> list[NoteDTO]: ...
+
+    async def list(self, *, limit: int = 20, offset: int = 0,
+                   as_dict: bool = False):   # type: ignore[override]
         res = await self.session.execute(
-            select(Note).where(Note.id == note_id)
+            select(Note).order_by(Note.id.asc()).offset(offset).limit(limit)
         )
-        return res.scalar_one_or_none()
+        notes = res.scalars().all()
+        if as_dict:
+            return [self._to_dto(n) for n in notes]
+        return notes
 
-    async def list(self, limit: int = 20, offset: int = 0) -> Sequence[Note]:
-        """
-        Получить список заметок (с пагинацией, отсортировано по id).
-        :param limit: максимальное число записей (по умолчанию 20)
-        :param offset: смещение для пагинации (по умолчанию 0)
-        :return: список Note (Sequence[Note])
-        """
-        res = await self.session.execute(
-            select(Note)
-            .order_by(Note.id.asc())
-            .offset(offset)
-            .limit(limit)
-        )
-        return res.scalars().all()
+    # ───────── update ─────────
+    @overload
+    async def update(self, note_id: int, *, as_dict: bool = False,
+                     **fields: Any) -> Note | None: ...
 
-    async def update(self, note_id: int, **fields: Any) -> Note | None:
-        """
-        Обновить указанные поля заметки по id.
-        :param note_id: идентификатор записи
-        :param fields: любые поля модели Note (text, emotion, score, ...)
-        :return: обновлённый объект Note, либо None если не найден
-        """
-        await self.session.execute(
-            update(Note).where(Note.id == note_id).values(**fields)
-        )
+    @overload
+    async def update(self, note_id: int, *, as_dict: bool = True,
+                     **fields: Any) -> NoteDTO | None: ...
+
+    async def update(self, note_id: int, *, as_dict: bool = False,
+                     **fields: Any):        # type: ignore[override]
+        await self.session.execute(update(Note).where(Note.id == note_id).values(**fields))
         await self.session.commit()
-        return await self.get(note_id)
+        return await self.get(note_id, as_dict=as_dict)
 
+    # ───────── delete ─────────
     async def delete(self, note_id: int) -> None:
-        """
-        Удалить заметку по id (ничего не делает, если запись не найдена).
-        :param note_id: идентификатор записи
-        """
-        await self.session.execute(
-            delete(Note).where(Note.id == note_id)
-        )
+        await self.session.execute(delete(Note).where(Note.id == note_id))
         await self.session.commit()
