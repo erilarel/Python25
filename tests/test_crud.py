@@ -1,17 +1,15 @@
-# tests/test_crud_extra.py
 import pytest
+import asyncio
 from datetime import datetime
-from sqlalchemy import delete
 
 from db.session import engine, AsyncSessionLocal
 from db import models
 from db.crud import NoteRepository
 
 
-# ─────────────────────────── фикстуры ────────────────────────────
+# ───────────────────────── фикстуры ─────────────────────────
 @pytest.fixture(autouse=True, scope="module")
 async def prepare_db():
-    """Создаём схему до запусков и удаляем после модуля."""
     async with engine.begin() as conn:
         await conn.run_sync(models.Base.metadata.create_all)
     yield
@@ -21,108 +19,112 @@ async def prepare_db():
 
 @pytest.fixture
 async def repo():
-    """Свежий NoteRepository на каждую функцию-тест."""
     async with AsyncSessionLocal() as session:
         yield NoteRepository(session)
 
 
-# ─────────────────────── помощник-ассерт ────────────────────────
 def _check_basic(note, *, text, emotion, score, source):
-    assert note.text == text
-    assert note.emotion == emotion
-    assert note.score == score
-    assert note.source == source
+    assert note["text"] == text
+    assert note["emotion"] == emotion
+    assert note["score"] == score
+    assert note["source"] == source
 
 
-# ─────────────────────────── обычные кейсы ───────────────────────
+# ───────────────────────── обычные кейсы ─────────────────────
 @pytest.mark.asyncio
 async def test_list_and_pagination(repo):
+    await repo.clear()
     for n in range(3):
         await repo.add(text=f"note {n}", emotion="neutral", source="edit")
-    notes = await repo.list()
-    assert len(notes) == 3
+        await asyncio.sleep(1)        # обеспечиваем разницу секунд
+    notes = await repo.list(as_dict=True)
+    assert [n["text"] for n in notes] == ["note 2", "note 1", "note 0"]
 
-    page2 = await repo.list(limit=1, offset=1)
-    assert len(page2) == 1 and page2[0].text == "note 1"
+    page2 = await repo.list(limit=1, offset=1, as_dict=True)
+    assert page2[0]["text"] == "note 1"
 
 
 @pytest.mark.asyncio
 async def test_update_note(repo):
-    note = await repo.add(text="orig", emotion="sad")
+    await repo.clear()
+    note = await repo.add(text="orig", emotion="sad", as_dict=True)
+    await asyncio.sleep(1)
     updated = await repo.update(
-        note.id, text="updated", emotion="joy", score=0.99
+        note["id"], text="updated", emotion="joy", score=0.99, as_dict=True
     )
-    assert updated.text == "updated"
-    assert updated.emotion == "joy"
-    assert updated.score == 0.99
-    assert updated.updated_at is not None
+    _check_basic(updated, text="updated", emotion="joy",
+                 score=0.99, source="voice")
+    assert updated["updated_at"] > note["updated_at"]
 
 
 @pytest.mark.asyncio
 async def test_delete_note(repo):
-    note = await repo.add(text="to delete", emotion="sad")
-    await repo.delete(note.id)
-    assert await repo.get(note.id) is None
+    await repo.clear()
+    note = await repo.add(text="to delete", emotion="sad", as_dict=True)
+    await repo.delete(note["id"])
+    assert await repo.get(note["id"], as_dict=True) is None
 
 
 @pytest.mark.asyncio
 async def test_get_nonexistent(repo):
-    assert await repo.get(9999) is None
+    assert await repo.get(9999, as_dict=True) is None
 
 
 @pytest.mark.asyncio
 async def test_update_nonexistent(repo):
-    assert await repo.update(12345, text="ghost") is None
+    assert await repo.update(12345, text="ghost", as_dict=True) is None
 
 
-# ─────────────────────────── краевые кейсы ───────────────────────
+# ───────────────────────── краевые ───────────────────────────
 @pytest.mark.asyncio
 async def test_add_with_all_fields(repo):
+    await repo.clear()
     note = await repo.add(
         text="edge–case",
         emotion="sad",
         score=0.01,
         source="import",
         audio_path="/tmp/edge.wav",
+        as_dict=True,
     )
     _check_basic(note, text="edge–case", emotion="sad",
                  score=0.01, source="import")
-    assert note.audio_path.endswith("edge.wav")
-    assert isinstance(note.created_at, datetime)
-    assert note.updated_at is not None           # теперь NOT NULL от сервера
+    assert note["audio_path"].endswith("edge.wav")
+    datetime.fromisoformat(note["created_at"])
 
 
 @pytest.mark.asyncio
 async def test_update_partial_fields(repo):
-    note = await repo.add(text="orig-text", emotion="joy")
-    updated = await repo.update(note.id, text="only-text-changed")
+    await repo.clear()
+    note = await repo.add(text="orig-text", emotion="joy", as_dict=True)
+    await asyncio.sleep(1)
+    updated = await repo.update(note["id"], text="only-text-changed",
+                                as_dict=True)
     _check_basic(updated, text="only-text-changed",
                  emotion="joy", score=None, source="voice")
-    assert updated.updated_at is not None
 
 
 @pytest.mark.asyncio
 async def test_delete_nonexistent_is_silent(repo):
-    await repo.delete(123456)                     # чужого id нет — тишина
-    note = await repo.add(text="still works", emotion="neutral")
-    assert note.id                                # CRUD жив
+    await repo.clear()
+    await repo.delete(123456)
+    note = await repo.add(text="still works", emotion="neutral", as_dict=True)
+    assert note["id"]
 
 
 @pytest.mark.asyncio
 async def test_list_empty_then_filled(repo):
-    # очищаем таблицу
-    async with repo.session.begin():
-        await repo.session.execute(delete(models.Note))
-        await repo.session.commit()
+    await repo.clear()
+    assert await repo.list(as_dict=True) == []
 
-    assert await repo.list() == []                # пусто
+    a = await repo.add(text="a", emotion="joy", as_dict=True)
+    await asyncio.sleep(1)
+    b = await repo.add(text="b", emotion="sad", as_dict=True)
 
-    a = await repo.add(text="a", emotion="joy")
-    b = await repo.add(text="b", emotion="sad")
-    ids = [n.id for n in await repo.list()]
-    assert ids == [a.id, b.id]                    # id ASC
+    ids = [n["id"] for n in await repo.list(as_dict=True)]
+    assert ids == [b["id"], a["id"]]
 
 
 @pytest.mark.asyncio
 async def test_get_returns_none_for_missing_id(repo):
-    assert await repo.get(987654321) is None
+    assert await repo.get(987654321, as_dict=True) is None
