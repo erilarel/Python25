@@ -1,24 +1,28 @@
 from __future__ import annotations
 
-"""Асинхронный репозиторий + сериализация для фронта.
-Если задать as_dict=True, методы вернут готовый словарь (JSON-ready),
-иначе — «сырой» ORM-объект Note.
+"""Асинхронный репозиторий + сериализация для фронта (UI / REST).
+
+Функциональность
+----------------
+* CRUD-методы (add • get • list • update • delete).
+* `as_dict=True` ⇒ возвращает NoteDTO (dict), иначе ORM-объект Note.
+* list() выдаёт последние заметки: ORDER BY updated_at DESC, created_at DESC.
+* clear() быстро очищает всю таблицу (dev-режим, тесты).
 """
 
 from typing import Sequence, Any, TypedDict, overload
-from datetime import datetime
+from datetime import datetime, timezone
 
-from sqlalchemy import select, update, delete
+from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .models import Note
 
 
-# ───────────────────────── DTO ──────────────────────────
+# ─────────────────── DTO тип ───────────────────
 class NoteDTO(TypedDict):
-    """Сериализованный формат заметки, который удобно отдавать во фронт/API."""
     id: int
-    created_at: str      # ISO-строка
+    created_at: str
     updated_at: str
     text: str
     audio_path: str | None
@@ -27,19 +31,12 @@ class NoteDTO(TypedDict):
     source: str
 
 
-# ───────────────────── Репозиторий ──────────────────────
+# ──────────────── Репозиторий ───────────────────
 class NoteRepository:
-    """
-    CRUD-обёртка для таблицы *notes*.
-
-    • По-умолчанию возвращает ORM-объект Note.
-    • Передайте as_dict=True — получите NoteDTO (dict) для Streamlit/REST.
-    """
-
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    # ───────── helpers ─────────
+    # ---------- helpers ----------
     @staticmethod
     def _to_dto(note: Note) -> NoteDTO:
         iso = lambda dt: dt.isoformat(sep="T", timespec="seconds") if isinstance(dt, datetime) else None  # noqa: E731
@@ -54,7 +51,7 @@ class NoteRepository:
             source=note.source,
         )
 
-    # ───────── add ─────────
+    # ---------- add ----------
     @overload
     async def add(self, *, text: str, emotion: str, score: float | None = None,
                   source: str = "voice", audio_path: str | None = None,
@@ -67,7 +64,7 @@ class NoteRepository:
 
     async def add(self, *, text: str, emotion: str, score: float | None = None,
                   source: str = "voice", audio_path: str | None = None,
-                  as_dict: bool = False):   # type: ignore[override]
+                  as_dict: bool = False):  # type: ignore[override]
         note = Note(text=text, emotion=emotion, score=score,
                     source=source, audio_path=audio_path)
         self.session.add(note)
@@ -75,7 +72,7 @@ class NoteRepository:
         await self.session.refresh(note)
         return self._to_dto(note) if as_dict else note
 
-    # ───────── get ─────────
+    # ---------- get ----------
     @overload
     async def get(self, note_id: int, *, as_dict: bool = False) -> Note | None: ...
 
@@ -83,13 +80,12 @@ class NoteRepository:
     async def get(self, note_id: int, *, as_dict: bool = True) -> NoteDTO | None: ...
 
     async def get(self, note_id: int, *, as_dict: bool = False):  # type: ignore[override]
-        res = await self.session.execute(select(Note).where(Note.id == note_id))
-        note = res.scalar_one_or_none()
+        note = await self.session.get(Note, note_id)
         if note is None:
             return None
         return self._to_dto(note) if as_dict else note
 
-    # ───────── list ─────────
+    # ---------- list ----------
     @overload
     async def list(self, *, limit: int = 20, offset: int = 0,
                    as_dict: bool = False) -> Sequence[Note]: ...
@@ -99,16 +95,17 @@ class NoteRepository:
                    as_dict: bool = True) -> list[NoteDTO]: ...
 
     async def list(self, *, limit: int = 20, offset: int = 0,
-                   as_dict: bool = False):   # type: ignore[override]
+                   as_dict: bool = False):  # type: ignore[override]
         res = await self.session.execute(
-            select(Note).order_by(Note.id.asc()).offset(offset).limit(limit)
+            select(Note)
+            .order_by(Note.updated_at.desc(), Note.created_at.desc())
+            .offset(offset)
+            .limit(limit)
         )
         notes = res.scalars().all()
-        if as_dict:
-            return [self._to_dto(n) for n in notes]
-        return notes
+        return [self._to_dto(n) for n in notes] if as_dict else notes
 
-    # ───────── update ─────────
+    # ---------- update ----------
     @overload
     async def update(self, note_id: int, *, as_dict: bool = False,
                      **fields: Any) -> Note | None: ...
@@ -118,12 +115,29 @@ class NoteRepository:
                      **fields: Any) -> NoteDTO | None: ...
 
     async def update(self, note_id: int, *, as_dict: bool = False,
-                     **fields: Any):        # type: ignore[override]
-        await self.session.execute(update(Note).where(Note.id == note_id).values(**fields))
-        await self.session.commit()
-        return await self.get(note_id, as_dict=as_dict)
+                     **fields: Any):  # type: ignore[override]
+        note: Note | None = await self.session.get(Note, note_id)
+        if note is None:
+            return None
 
-    # ───────── delete ─────────
+        # меняем переданные поля
+        for key, val in fields.items():
+            setattr(note, key, val)
+
+        # руками обновляем timestamp
+        note.updated_at = datetime.now(tz=timezone.utc)
+
+        await self.session.commit()
+        await self.session.refresh(note)
+        return self._to_dto(note) if as_dict else note
+
+    # ---------- delete ----------
     async def delete(self, note_id: int) -> None:
         await self.session.execute(delete(Note).where(Note.id == note_id))
+        await self.session.commit()
+
+    # ---------- clear ----------
+    async def clear(self) -> None:
+        """Стереть все записи (dev / тесты)."""
+        await self.session.execute(delete(Note))
         await self.session.commit()
