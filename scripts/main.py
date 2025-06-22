@@ -2,6 +2,7 @@ import streamlit as st
 from datetime import datetime
 from voice_nika import VoiceToTextConverter
 
+
 st.set_page_config(
     layout="wide",
     page_title="Личный дневник с эмоциональной окраской текста",
@@ -73,6 +74,7 @@ if 'recognized_text' not in st.session_state:
 if 'is_recording' not in st.session_state:
     st.session_state.is_recording = False
 
+
 st.markdown('<h1 class="main-title">Личный дневник с эмоциональной окраской текста</h1>', unsafe_allow_html=True)
 st.markdown("---")
 
@@ -135,6 +137,23 @@ with col1:
                     height=150,
                     label_visibility="collapsed"
                 )
+                
+                submitted = st.form_submit_button(
+                    "📝 Создать заметку",
+                    type="primary",
+                    use_container_width=True
+                )
+                
+                if submitted and note_content.strip():
+                    new_note = {
+                        "type": "text",
+                        "content": note_content,
+                        "time": datetime.now().strftime("%d.%m.%Y %H:%M"),
+                        "emotion": "🎤"
+                    }
+                    st.session_state.notes.append(new_note)
+                    st.session_state.recognized_text = ""
+                    st.rerun()
 
                 submitted = st.form_submit_button(
                     "📝 Создать заметку",
