@@ -6,7 +6,7 @@ import streamlit as st
 
 
 class VoiceToTextConverter:
-    def init(self):
+    def __init__(self):
         self.recognizer = sr.Recognizer()
         self.recognizer.pause_threshold = 1.5
         self.sample_rate = 16000
