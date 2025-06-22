@@ -1,5 +1,6 @@
 import streamlit as st
 from datetime import datetime
+from voice_nika import VoiceToTextConverter 
 
 st.set_page_config(
     layout="wide",
@@ -67,6 +68,13 @@ if 'current_text' not in st.session_state:
     st.session_state.current_text = ""
 if 'input_mode' not in st.session_state:
     st.session_state.input_mode = "text"
+if 'voice_converter' not in st.session_state:
+    st.session_state.voice_converter = VoiceToTextConverter()
+if 'recognized_text' not in st.session_state:
+    st.session_state.recognized_text = ""
+if 'is_recording' not in st.session_state:
+    st.session_state.is_recording = False
+
 
 
 st.markdown('<h1 class="main-title">Личный дневник с эмоциональной окраской текста</h1>', unsafe_allow_html=True)
@@ -78,43 +86,77 @@ col1, col2 = st.columns([0.4, 0.6], gap="large")
 
 with col1:
     st.subheader("Формат записи")
-    mode = st.radio(
+    
+    input_mode = st.selectbox(
         "Выберите тип записи:",
         ["✏️ Текст", "🎤 Аудио"],
-        horizontal=True,
+        index=0,
         label_visibility="collapsed"
     )
-    st.session_state.input_mode = "text" if mode == "✏️ Текст" else "audio"
-    
 
-    with st.form("entry_form", clear_on_submit=True):
-        if st.session_state.input_mode == "text":
+    if input_mode == "✏️ Текст":
+        with st.form("text_entry_form", clear_on_submit=True):
             note_content = st.text_area(
                 "Ваша запись:",
                 placeholder="Опишите свои мысли и чувства...",
                 height=250,
-                value=st.session_state.current_text
+                label_visibility="collapsed"
             )
+            
+            submitted = st.form_submit_button(
+                "📝 Создать заметку",
+                type="primary",
+                use_container_width=True
+            )
+            
+            if submitted and note_content.strip():
+                new_note = {
+                    "type": "text",
+                    "content": note_content,
+                    "time": datetime.now().strftime("%d.%m.%Y %H:%M"),
+                    "emotion": "✏️"
+                }
+                st.session_state.notes.append(new_note)
+                st.rerun()
+
+
+    else:
+        if not st.session_state.is_recording:
+            if st.button("🎤 Начать голосовую запись", use_container_width=True):
+                st.session_state.is_recording = True
+                st.rerun()
         else:
-            st.warning("Аудиозапись пока в разработке")
-            note_content = ""
-        
-        submitted = st.form_submit_button(
-            "📝 Сохранить запись",
-            type="primary",
-            use_container_width=True
-        )
-        
-        if submitted and st.session_state.input_mode == "text" and note_content.strip():
-            new_note = {
-                "type": "text",
-                "content": note_content,
-                "time": datetime.now().strftime("%d.%m.%Y %H:%M"),
-                "emotion": "😊"  
-            }
-            st.session_state.notes.append(new_note)
-            st.session_state.current_text = ""
-            st.rerun()
+            with st.spinner("Запись... Говорите сейчас (10 сек)"):
+                audio_data = st.session_state.voice_converter.record_voice()
+                st.session_state.recognized_text = st.session_state.voice_converter.audio_to_text(audio_data)
+                st.session_state.is_recording = False
+                st.rerun()
+
+        if st.session_state.recognized_text:
+            with st.form("audio_entry_form", clear_on_submit=True):
+                note_content = st.text_area(
+                    "Распознанный текст:",
+                    value=st.session_state.recognized_text,
+                    height=150,
+                    label_visibility="collapsed"
+                )
+                
+                submitted = st.form_submit_button(
+                    "📝 Создать заметку",
+                    type="primary",
+                    use_container_width=True
+                )
+                
+                if submitted and note_content.strip():
+                    new_note = {
+                        "type": "text",
+                        "content": note_content,
+                        "time": datetime.now().strftime("%d.%m.%Y %H:%M"),
+                        "emotion": "🎤"
+                    }
+                    st.session_state.notes.append(new_note)
+                    st.session_state.recognized_text = ""
+                    st.rerun()
 
 
 with col2:
