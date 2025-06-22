@@ -1,6 +1,8 @@
 import streamlit as st
 from datetime import datetime
 from voice_nika import VoiceToTextConverter
+import numpy as np
+import time
 
 
 st.set_page_config(
@@ -78,7 +80,7 @@ if 'is_recording' not in st.session_state:
 st.markdown('<h1 class="main-title">Личный дневник с эмоциональной окраской текста</h1>', unsafe_allow_html=True)
 st.markdown("---")
 
-# Основной контейнер
+
 col1, col2 = st.columns([0.4, 0.6], gap="large")
 
 with col1:
@@ -116,19 +118,39 @@ with col1:
                 st.session_state.notes.append(new_note)
                 st.rerun()
 
-
     else:
-        if not st.session_state.is_recording:
+        if not st.session_state.get('is_recording', False):
             if st.button("🎤 Начать голосовую запись", use_container_width=True):
                 st.session_state.is_recording = True
+                st.session_state.voice_converter = VoiceToTextConverter()
+                st.session_state.voice_converter.start_recording()
                 st.rerun()
         else:
-            with st.spinner("Запись... Говорите сейчас (10 сек)"):
-                audio_data = st.session_state.voice_converter.record_voice()
-                st.session_state.recognized_text = st.session_state.voice_converter.audio_to_text(audio_data)
-                st.session_state.is_recording = False
-                st.rerun()
-
+            if st.button("⏹️ Остановить запись", type="primary", use_container_width=True):
+                st.session_state.voice_converter.stop_recording()
+                
+                with st.spinner("Обработка записи..."):
+                    try:
+                        audio_data = st.session_state.voice_converter.get_audio_data()
+                        if audio_data is not None:
+                            try:
+                                st.session_state.recognized_text = st.session_state.voice_converter.audio_to_text(audio_data)
+                                st.success("✅ Запись успешно распознана!")
+                            except RuntimeError as e:
+                                st.error(f"❌ Ошибка: {str(e)}")
+                        else:
+                            st.warning("⚠️ Не удалось получить аудиоданные")
+                    except Exception as e:
+                        st.error(f"⛔ Ошибка обработки: {str(e)}")
+                    finally:
+                        st.session_state.is_recording = False
+                        st.rerun()  # Обновляем интерфейс после обработки
+            
+            # Показываем элементы записи ТОЛЬКО если запись еще идет
+            if st.session_state.get('is_recording', False):
+                st.warning("🎙️ Идёт запись... Говорите чётко в микрофон")
+                st.caption("Нажмите '⏹️ Остановить запись' когда закончите")
+            
         if st.session_state.recognized_text:
             with st.form("audio_entry_form", clear_on_submit=True):
                 note_content = st.text_area(
@@ -144,23 +166,6 @@ with col1:
                     use_container_width=True
                 )
                 
-                if submitted and note_content.strip():
-                    new_note = {
-                        "type": "text",
-                        "content": note_content,
-                        "time": datetime.now().strftime("%d.%m.%Y %H:%M"),
-                        "emotion": "🎤"
-                    }
-                    st.session_state.notes.append(new_note)
-                    st.session_state.recognized_text = ""
-                    st.rerun()
-
-                submitted = st.form_submit_button(
-                    "📝 Создать заметку",
-                    type="primary",
-                    use_container_width=True
-                )
-
                 if submitted and note_content.strip():
                     new_note = {
                         "type": "text",
