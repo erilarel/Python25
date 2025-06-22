@@ -3,22 +3,18 @@ from datetime import datetime
 import asyncio
 from scripts.voice_nika import VoiceToTextConverter
 
-# ─────────────────── DB setup ───────────────────
 from db.session import AsyncSessionLocal, init_db
 from db.crud import NoteRepository
 
 
-# Инициализируем базу один раз при первом запуске
 @st.cache_resource(show_spinner="Подготовка базы данных…")
 def _prepare_database():
     asyncio.run(init_db())
 
 _prepare_database()
 
-# ─────────────────── helpers ───────────────────
 
 def _run(coro):
-    """Безопасно запускаем async‑корутины из sync‑контекста Streamlit."""
     return asyncio.run(coro)
 
 
@@ -53,7 +49,6 @@ def list_notes(limit: int = 100):
             return await repo.list(limit=limit, as_dict=True)
     return _run(_list())
 
-# ─────────────────── UI ───────────────────
 
 st.set_page_config(
     layout="wide",
@@ -88,66 +83,105 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ──────────────── session_state ────────────────
+st.markdown('<h1 class="main-title">Личный дневник с эмоциональной окраской текста</h1>', unsafe_allow_html=True)
+st.markdown("---")
+
+if 'notes' not in st.session_state:
+    st.session_state.notes = []
+if 'current_text' not in st.session_state:
+    st.session_state.current_text = ""
+if 'input_mode' not in st.session_state:
+    st.session_state.input_mode = "text"
 if "voice_converter" not in st.session_state:
     st.session_state.voice_converter = VoiceToTextConverter()
 if "recognized_text" not in st.session_state:
     st.session_state.recognized_text = ""
 if "is_recording" not in st.session_state:
     st.session_state.is_recording = False
-# Для редактирования
 if "editing_note_id" not in st.session_state:
     st.session_state.editing_note_id = None
 
-# ─────────────────── Заголовок ───────────────────
-st.markdown(
-    '<h1 class="main-title">Личный дневник с эмоциональной окраской текста</h1>',
-    unsafe_allow_html=True,
-)
-st.markdown("---")
 
-# ─────────────────── Основной контейнер ───────────────────
+
 col1, col2 = st.columns([0.4, 0.6], gap="large")
 
 with col1:
     st.subheader("Формат записи")
 
     mode = st.selectbox(
-        "Выберите тип записи:", ["✏️ Текст", "🎤 Аудио"], index=0,
+        "Выберите тип записи:", ["✏️ Текст", "🎤 Аудио"], index=0, label_visibility="collapsed"
     )
 
     if mode == "✏️ Текст":
         with st.form("text_entry_form", clear_on_submit=True):
             note_content = st.text_area(
-                "Ваша запись:", placeholder="Опишите свои мысли и чувства...", height=250
+                "Ваша запись:", 
+                placeholder="Опишите свои мысли и чувства...", 
+                height=250, 
+                label_visibility="collapsed"
             )
-            submitted = st.form_submit_button("📝 Создать заметку", type="primary", use_container_width=True)
+
+            submitted = st.form_submit_button(
+                "📝 Создать заметку", 
+                type="primary", 
+                use_container_width=True)
+            
             if submitted and note_content.strip():
                 add_note(text=note_content, emotion="✏️", score=None, source="text", audio_path=None)
                 st.rerun()
 
     else:
-        if not st.session_state.is_recording:
-            if st.button("🎤 Начать голосовую запись", use_container_width=True):
-                st.session_state.is_recording = True
-                st.rerun()
-        else:
-            with st.spinner("Запись... Говорите сейчас (10 сек)"):
-                audio_data = st.session_state.voice_converter.record_voice()
-                st.session_state.recognized_text = st.session_state.voice_converter.audio_to_text(audio_data)
-            st.session_state.is_recording = False
-            st.rerun()
-
-        if st.session_state.recognized_text:
-            with st.form("audio_entry_form", clear_on_submit=True):
-                note_content = st.text_area(
-                    "Распознанный текст:", value=st.session_state.recognized_text, height=150
-                )
-                submitted = st.form_submit_button("📝 Создать заметку", type="primary", use_container_width=True)
-                if submitted and note_content.strip():
-                    add_note(text=note_content, emotion="🎤", score=None, source="voice", audio_path=None)
-                    st.session_state.recognized_text = ""
+            if not st.session_state.get('is_recording', False):
+                if st.button("🎤 Начать голосовую запись", use_container_width=True):
+                    st.session_state.is_recording = True
+                    st.session_state.voice_converter = VoiceToTextConverter()
+                    st.session_state.voice_converter.start_recording()
                     st.rerun()
+            else:
+                if st.button("⏹️ Остановить запись", type="primary", use_container_width=True):
+                    st.session_state.voice_converter.stop_recording()
+                    
+                    with st.spinner("Обработка записи..."):
+                        try:
+                            audio_data = st.session_state.voice_converter.get_audio_data()
+                            if audio_data is not None:
+                                try:
+                                    st.session_state.recognized_text = st.session_state.voice_converter.audio_to_text(audio_data)
+                                    st.success("✅ Запись успешно распознана!")
+                                except RuntimeError as e:
+                                    st.error(f"❌ Ошибка: {str(e)}")
+                            else:
+                                st.warning("⚠️ Не удалось получить аудиоданные")
+                        except Exception as e:
+                            st.error(f"⛔ Ошибка обработки: {str(e)}")
+                        finally:
+                            st.session_state.is_recording = False
+                            st.rerun()
+                
+                
+                if st.session_state.get('is_recording', False):
+                    st.warning("🎙️ Идёт запись... Говорите чётко в микрофон")
+                    st.caption("Нажмите '⏹️ Остановить запись' когда закончите")
+                
+            if st.session_state.recognized_text:
+                with st.form("audio_entry_form", clear_on_submit=True):
+                    note_content = st.text_area(
+                        "Распознанный текст:",
+                        value=st.session_state.recognized_text,
+                        height=150,
+                        label_visibility="collapsed"
+                    )
+                    
+                    submitted = st.form_submit_button(
+                        "📝 Создать заметку",
+                        type="primary",
+                        use_container_width=True
+                    )
+                    
+                    if submitted and note_content.strip():
+                        add_note(text=note_content, emotion="🎤", score=None, source="audio", audio_path=None)
+                        st.session_state.recognized_text = ""
+                        st.rerun()
 
 with col2:
     st.subheader("История записей")
@@ -156,26 +190,26 @@ with col2:
     if not notes:
         st.info("Здесь будут появляться ваши записи")
     else:
-        for note in notes:  # новые сверху
+        for note in notes:
             nid = note["id"]
             disp = datetime.fromisoformat(note["created_at"]).strftime("%d.%m.%Y %H:%M")
 
-            # Если в режиме редактирования этой заметки
+            
             if st.session_state.editing_note_id == nid:
                 with st.form(f"edit_form_{nid}"):
                     edited = st.text_area("Редактировать заметку:", value=note['text'], height=150)
                     c1, c2 = st.columns(2)
-                    if c1.form_submit_button("Сохранить"):  # сохраняем
+                    if c1.form_submit_button("Сохранить"):
                         update_note(nid, edited)
                         st.session_state.editing_note_id = None
                         st.rerun()
-                    if c2.form_submit_button("Отмена"):  # отменяем
+                    if c2.form_submit_button("Отмена"):
                         st.session_state.editing_note_id = None
                         st.rerun()
                 st.markdown("---")
                 continue
 
-            # Отображение карточки
+            
             with st.container():
                 st.markdown(
                     f"""
@@ -192,7 +226,6 @@ with col2:
                     """,
                     unsafe_allow_html=True,
                 )
-                # Кнопки действий
                 edit_col, btn_col, empty = st.columns([0.1,2.5,0.1])
                 with btn_col:
                     if st.button("🗑️", key=f"del-{nid}"):
