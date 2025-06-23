@@ -2,7 +2,7 @@ import streamlit as st
 from datetime import datetime
 import asyncio
 from scripts.voice_nika import VoiceToTextConverter
-
+from scripts.emotion_class import Emotion_detector
 from db.session import AsyncSessionLocal, init_db
 from db.crud import NoteRepository
 
@@ -26,11 +26,11 @@ def add_note(**fields):
     return _run(_add())
 
 
-def update_note(note_id: int, new_text: str):
+def update_note(note_id: int, new_text: str, emotion:str):
     async def _upd():
         async with AsyncSessionLocal() as session:
             repo = NoteRepository(session)
-            return await repo.update(note_id, text=new_text, as_dict=True)
+            return await repo.update(note_id, text=new_text, emotion=emotion, as_dict=True)
     return _run(_upd())
 
 
@@ -94,6 +94,8 @@ if 'input_mode' not in st.session_state:
     st.session_state.input_mode = "text"
 if "voice_converter" not in st.session_state:
     st.session_state.voice_converter = VoiceToTextConverter()
+if "e_detector" not in st.session_state:
+    st.session_state.e_detector = Emotion_detector()
 if "recognized_text" not in st.session_state:
     st.session_state.recognized_text = ""
 if "is_recording" not in st.session_state:
@@ -101,7 +103,17 @@ if "is_recording" not in st.session_state:
 if "editing_note_id" not in st.session_state:
     st.session_state.editing_note_id = None
 
-
+name2smile = {
+  "joy": ["😊", "src/joy.jpg"],
+  "interest": ["🤔", "src/joy.jpg"],
+  "surpise": ["😲", "src/joy.jpg"],
+  "sadness": ["😢", "src/joy.jpg"],
+  "anger": ["😡", "src/angry.jpg"],
+  "disgust": ["🤢", "src/joy.jpg"],
+  "fear": ["😨", "src/joy.jpg"],
+  "guilt": ["😔", "src/joy.jpg"],
+  "neutral": ["😐", "src/joy.jpg"]
+}
 
 col1, col2 = st.columns([0.4, 0.6], gap="large")
 
@@ -127,14 +139,15 @@ with col1:
                 use_container_width=True)
             
             if submitted and note_content.strip():
-                add_note(text=note_content, emotion="✏️", score=None, source="text", audio_path=None)
+                emotion = st.session_state.e_detector.start(note_content)
+                add_note(text=note_content, emotion=emotion, score=None, source="text", audio_path=None)
                 st.rerun()
 
     else:
             if not st.session_state.get('is_recording', False):
                 if st.button("🎤 Начать голосовую запись", use_container_width=True):
                     st.session_state.is_recording = True
-                    st.session_state.voice_converter = VoiceToTextConverter()
+                    st.session_state.voice_converter = VoiceToTextConverter() #дважды инициализируем
                     st.session_state.voice_converter.start_recording()
                     st.rerun()
             else:
@@ -179,7 +192,8 @@ with col1:
                     )
                     
                     if submitted and note_content.strip():
-                        add_note(text=note_content, emotion="🎤", score=None, source="audio", audio_path=None)
+                        emotion = st.session_state.e_detector.start(note_content)
+                        add_note(text=note_content, emotion=emotion, score=None, source="audio", audio_path=None)
                         st.session_state.recognized_text = ""
                         st.rerun()
 
@@ -191,16 +205,19 @@ with col2:
         st.info("Здесь будут появляться ваши записи")
     else:
         for note in notes:
+
             nid = note["id"]
             disp = datetime.fromisoformat(note["created_at"]).strftime("%d.%m.%Y %H:%M")
 
             
             if st.session_state.editing_note_id == nid:
                 with st.form(f"edit_form_{nid}"):
-                    edited = st.text_area("Редактировать заметку:", value=note['text'], height=150)
+                    edited_text = st.text_area("Редактировать заметку:", value=note['text'], height=150)
+                    emotion = st.session_state.e_detector.start(edited_text)
+
                     c1, c2 = st.columns(2)
                     if c1.form_submit_button("Сохранить"):
-                        update_note(nid, edited)
+                        update_note(nid, edited_text, emotion)
                         st.session_state.editing_note_id = None
                         st.rerun()
                     if c2.form_submit_button("Отмена"):
@@ -209,26 +226,26 @@ with col2:
                 st.markdown("---")
                 continue
 
-            
             with st.container():
+                st.image(name2smile[note.get('emotion', '😊')][1], width=800)
                 st.markdown(
                     f"""
-                    <div class=\"note-card\">   
-                      <div style=\"display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;\">  
-                        <div style=\"display:flex;align-items:center;gap:0.5rem;\">  
-                          <span style=\"font-size:1.5rem;\">{note.get('emotion','😊')}</span>  
-                          <h4 style=\"margin:0;\">Запись от {disp}</h4>  
-                        </div>  
-                        <small style=\"color:#666;\">#ID {nid}</small>  
-                      </div>  
-                      <div style=\"white-space:pre-wrap;padding:0.5rem 0;line-height:1.6;\">{note['text']}</div>  
-                    </div>
-                    """,
+                               <div class=\"note-card\">   
+                                 <div style=\"display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;\">  
+                                   <div style=\"display:flex;align-items:center;gap:0.5rem;\">  
+                                     <span style=\"font-size:1.5rem;\">{name2smile[note.get('emotion', '😊')][0]}</span>  
+                                     <h4 style=\"margin:0;\">Запись от {disp}</h4>  
+                                   </div>  
+                                   <small style=\"color:#666;\">#ID {nid}</small>  
+                                 </div>  
+                                 <div style=\"white-space:pre-wrap;padding:0.5rem 0;line-height:1.6;\">{note['text']}</div>  
+                               </div>
+                               """,
                     unsafe_allow_html=True,
                 )
-                edit_col, btn_col, empty = st.columns([0.1,2.5,0.1])
+                edit_col, btn_col, empty = st.columns([0.1, 2.5, 0.1])
                 with btn_col:
-                    if st.button("🗑️", key=f"del-{nid}"):
+                    if st.button("🗑", key=f"del-{nid}"):
                         delete_note(nid)
                         st.rerun()
                 with edit_col:
@@ -236,3 +253,4 @@ with col2:
                         st.session_state.editing_note_id = nid
                         st.rerun()
                 st.markdown("---")
+
