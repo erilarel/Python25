@@ -30,6 +30,17 @@ name2smile = {
     "neutral": ["😐", "src/joy.jpg"],
 }
 
+# Эксперементальная функция цветов
+def get_emotion_color(emotion: str) -> str:
+    colors = {
+        "anger": "#ff5252, #d32f2f",
+        "disgust": "#8bc34a, #689f38",
+        "joy": "#ffeb3b, #fbc02d",
+        "neutral": "#bdbdbd, #757575",
+        "sadness": "#64b5f6, #1976d2"
+    }
+    return colors.get(emotion, "#bdbdbd, #757575")
+
 @st.cache_resource(show_spinner="Подготовка базы данных…")
 def _prepare_database():
     """
@@ -268,22 +279,51 @@ if page == "Дневник":
                     continue
 
                 with st.container():
-                    st.image(name2smile[note.get('emotion', '😊')][1], width=800)
+                    # st.image(name2smile[note.get('emotion', '😊')][1], width=800)
+                    # st.markdown(
+                    #     f"""
+                    #                <div class=\"note-card\">
+                    #                  <div style=\"display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;\">
+                    #                    <div style=\"display:flex;align-items:center;gap:0.5rem;\">
+                    #                      <span style=\"font-size:1.5rem;\">{name2smile[note.get('emotion', '😊')][0]}</span>
+                    #                      <h4 style=\"margin:0;\">Запись от {disp}</h4>
+                    #                    </div>
+                    #                    <small style=\"color:#666;\">#ID {nid}</small>
+                    #                  </div>
+                    #                  <div style=\"white-space:pre-wrap;padding:0.5rem 0;line-height:1.6;\">{note['text']}</div>
+                    #                </div>
+                    #                """,
+                    #     unsafe_allow_html=True,
+                    # )
+
+                    current_emotion = note.get('emotion', 'neutral')
+                    emotion_emoji = name2smile[current_emotion][0]
+                    image_path = name2smile[current_emotion][1]
+
+                    # Изображение-шапка с динамической шириной
+                    st.image(
+                        image_path,
+                        use_container_width=True,
+                        output_format='PNG'
+                    )
+
+                    # Карточка записи с оригинальным расположением смайла
                     st.markdown(
                         f"""
-                                   <div class=\"note-card\">   
-                                     <div style=\"display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;\">  
-                                       <div style=\"display:flex;align-items:center;gap:0.5rem;\">  
-                                         <span style=\"font-size:1.5rem;\">{name2smile[note.get('emotion', '😊')][0]}</span>  
-                                         <h4 style=\"margin:0;\">Запись от {disp}</h4>  
-                                       </div>  
-                                       <small style=\"color:#666;\">#ID {nid}</small>  
-                                     </div>  
-                                     <div style=\"white-space:pre-wrap;padding:0.5rem 0;line-height:1.6;\">{note['text']}</div>  
-                                   </div>
-                                   """,
-                        unsafe_allow_html=True,
+                        <div class="note-card">
+                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <span style="font-size:1.8rem;">{emotion_emoji}</span>
+                                    <h4 style="margin:0;">Запись от {disp}</h4>
+                                </div>
+                                <small style="color:#666;">#ID {nid}</small>
+                            </div>
+                            <div style="white-space:pre-wrap;padding:0.5rem 0;line-height:1.6;">{note['text']}</div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True
                     )
+
                     edit_col, btn_col, empty = st.columns([0.1, 2.5, 0.1])
                     with btn_col:
                         if st.button("🗑", key=f"del-{nid}"):
