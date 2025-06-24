@@ -34,7 +34,3 @@ class Emotion_detector():
         return  labels[predicted_class_idx]
 
 
-text = "Я купил мороженое. У меня было хорошее настроение и в этот день я получил зачёт по математике"
-detekrot = Emotion_detector()
-
-print(detekrot.start(text))
