@@ -27,7 +27,7 @@ python -c "from db.session import init_db; import asyncio; asyncio.run(init_db()
 python load_model.py
 ```
 
-6. Запустить программу (main_with_new_ds.py - последняя версия main, в последствии переименовать в main.py)
+6. Запустить программу (main_with_new_ds.py - последняя версия main, впоследствии переименовать в main.py)
 ```bash
 streamlit run main_with_new_ds.py
 ```
