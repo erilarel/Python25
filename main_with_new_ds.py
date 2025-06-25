@@ -262,7 +262,6 @@ if page == "Дневник":
             for note in notes:
 
                 nid = note["id"]
-                # disp = datetime.fromisoformat(note["created_at"]).strftime("%d.%m.%Y %H:%M")
 
                 moscow_tz = pytz.timezone('Europe/Moscow')
                 created_at = datetime.fromisoformat(note["created_at"]).replace(tzinfo=timezone.utc)
@@ -285,22 +284,6 @@ if page == "Дневник":
                     continue
 
                 with st.container():
-                    # st.image(name2smile[note.get('emotion', '😊')][1], width=800)
-                    # st.markdown(
-                    #     f"""
-                    #                <div class=\"note-card\">
-                    #                  <div style=\"display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;\">
-                    #                    <div style=\"display:flex;align-items:center;gap:0.5rem;\">
-                    #                      <span style=\"font-size:1.5rem;\">{name2smile[note.get('emotion', '😊')][0]}</span>
-                    #                      <h4 style=\"margin:0;\">Запись от {disp}</h4>
-                    #                    </div>
-                    #                    <small style=\"color:#666;\">#ID {nid}</small>
-                    #                  </div>
-                    #                  <div style=\"white-space:pre-wrap;padding:0.5rem 0;line-height:1.6;\">{note['text']}</div>
-                    #                </div>
-                    #                """,
-                    #     unsafe_allow_html=True,
-                    # )
 
                     current_emotion = note.get('emotion', 'neutral')
                     emotion_emoji = name2smile[current_emotion][0]

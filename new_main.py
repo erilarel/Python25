@@ -6,7 +6,8 @@
 """
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
+import pytz
 
 import streamlit as st
 import pandas as pd
@@ -19,15 +20,15 @@ from db.crud import NoteRepository
 
 #: @brief Словарь соответствия эмоций и эмодзи/картинок.
 name2smile = {
-    "joy": ["😊", "src/joy.jpg"],
-    "interest": ["🤔", "src/joy.jpg"],
-    "surprise": ["😲", "src/joy.jpg"],
-    "sadness": ["😢", "src/joy.jpg"],
-    "anger": ["😡", "src/angry.jpg"],
-    "disgust": ["🤢", "src/joy.jpg"],
-    "fear": ["😨", "src/joy.jpg"],
-    "guilt": ["😔", "src/joy.jpg"],
-    "neutral": ["😐", "src/joy.jpg"],
+  "joy": ["😊", "src/joy.jpg"],
+  "interest": ["🤔", "src/interest.jpg"],
+  "surpise": ["😲", "src/surprised.jpg"],
+  "sadness": ["😢", "src/sadness.jpg"],
+  "anger": ["😡", "src/angry1.jpg"],
+  "disgust": ["🤢", "src/disgust.jpg"],
+  "fear": ["😨", "src/fear.jpg"],
+  "guilt": ["😔", "src/guilt.jpg"],
+  "neutral": ["😐", "src/norm1.jpg"]
 }
 
 # Эксперементальная функция цветов
@@ -260,7 +261,11 @@ if page == "Дневник":
             for note in notes:
 
                 nid = note["id"]
-                disp = datetime.fromisoformat(note["created_at"]).strftime("%d.%m.%Y %H:%M")
+                # disp = datetime.fromisoformat(note["created_at"]).strftime("%d.%m.%Y %H:%M")
+
+                moscow_tz = pytz.timezone('Europe/Moscow')
+                created_at = datetime.fromisoformat(note["created_at"]).replace(tzinfo=timezone.utc)
+                disp = created_at.astimezone(moscow_tz).strftime("%d.%m.%Y %H:%M")
 
                 if st.session_state.editing_note_id == nid:
                     with st.form(f"edit_form_{nid}"):
