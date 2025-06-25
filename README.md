@@ -29,7 +29,7 @@ python load_model.py
 
 6. Запустить программу (main_with_new_ds.py - последняя версия main, в последствии переименовать в main.py)
 ```bash
-streamlit run streamlit run main_with_new_ds.py
+streamlit run main_with_new_ds.py
 ```
 ## 🏃 Запуск
 *main_with_new_ds.py - последняя версия main, в последствии переименовать в main.py
