@@ -17,6 +17,7 @@ from scripts.voice_nika import VoiceToTextConverter
 from scripts.emotion_class import EmotionDetector
 from db.session import AsyncSessionLocal, init_db
 from db.crud import NoteRepository
+from random import randint
 
 #: @brief Словарь соответствия эмоций и эмодзи/картинок.
 name2smile = {
@@ -261,7 +262,6 @@ if page == "Дневник":
             for note in notes:
 
                 nid = note["id"]
-                # disp = datetime.fromisoformat(note["created_at"]).strftime("%d.%m.%Y %H:%M")
 
                 moscow_tz = pytz.timezone('Europe/Moscow')
                 created_at = datetime.fromisoformat(note["created_at"]).replace(tzinfo=timezone.utc)
@@ -284,22 +284,6 @@ if page == "Дневник":
                     continue
 
                 with st.container():
-                    # st.image(name2smile[note.get('emotion', '😊')][1], width=800)
-                    # st.markdown(
-                    #     f"""
-                    #                <div class=\"note-card\">
-                    #                  <div style=\"display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;\">
-                    #                    <div style=\"display:flex;align-items:center;gap:0.5rem;\">
-                    #                      <span style=\"font-size:1.5rem;\">{name2smile[note.get('emotion', '😊')][0]}</span>
-                    #                      <h4 style=\"margin:0;\">Запись от {disp}</h4>
-                    #                    </div>
-                    #                    <small style=\"color:#666;\">#ID {nid}</small>
-                    #                  </div>
-                    #                  <div style=\"white-space:pre-wrap;padding:0.5rem 0;line-height:1.6;\">{note['text']}</div>
-                    #                </div>
-                    #                """,
-                    #     unsafe_allow_html=True,
-                    # )
 
                     current_emotion = note.get('emotion', 'neutral')
                     emotion_emoji = name2smile[current_emotion][0]
@@ -340,57 +324,54 @@ if page == "Дневник":
                             st.rerun()
                     st.markdown("---")
 
-
 if page == "Аналитика":
     st.header("Аналитика заметок")
     notes = list_notes(limit=10000)
+
     if not notes:
         st.info("Нет заметок для анализа")
     else:
+        # Словарь перевода эмоций на русский
+        emotion_translation = {
+            "joy": "Радость",
+            "interest": "Интерес",
+            "surprise": "Удивление",
+            "sadness": "Грусть",
+            "anger": "Гнев",
+            "disgust": "Отвращение",
+            "fear": "Страх",
+            "guilt": "Вина",
+            "neutral": "Нейтрально"
+        }
+
         df = pd.DataFrame(notes)
         df['created_at'] = pd.to_datetime(df['created_at'])
-        df['date'] = df['created_at'].dt.date
-        df['hour'] = df['created_at'].dt.hour
-        try:
-            df['weekday'] = df['created_at'].dt.day_name(locale='ru_RU')
-        except Exception:
-            df['weekday'] = df['created_at'].dt.day_name()
 
-        # 1. Распределение эмоций
-        counts = df['emotion'].value_counts().rename_axis('emotion').reset_index(name='count')
-        pie = alt.Chart(counts).mark_arc(innerRadius=50).encode(
-            theta='count:Q', color='emotion:N', tooltip=['emotion', 'count']
-        )
+        # Добавляем русские названия эмоций
+        df['emotion_ru'] = df['emotion'].map(emotion_translation)
+
+        # 1. Распределение эмоций (круговая диаграмма)
         st.subheader("Распределение эмоций")
+        counts = df['emotion_ru'].value_counts().rename_axis('Эмоция').reset_index(name='Количество')
+        pie = alt.Chart(counts).mark_arc(innerRadius=50).encode(
+            theta='Количество:Q',
+            color='Эмоция:N',
+            tooltip=['Эмоция', 'Количество']
+        )
         st.altair_chart(pie, use_container_width=True)
 
-        # 2. Эмоции по дням недели
-        st.subheader("Эмоции по дням недели")
-        week_counts = df.groupby(['weekday', 'emotion']).size().reset_index(name='count')
-        heat = alt.Chart(week_counts).mark_rect().encode(
-            x=alt.X('weekday:N',
-                    sort=['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье']),
-            y=alt.Y('emotion:N'),
-            color='count:Q',
-            tooltip=['weekday', 'emotion', 'count']
-        )
-        st.altair_chart(heat, use_container_width=True)
-
-        # 3. Тренд количества записей и скользящее среднее (7 дней)
-        daily = df.groupby('date').size().reset_index(name='count')
-        daily['rolling'] = daily['count'].rolling(7, min_periods=1).mean()
-        st.subheader("Тренд записей")
-        line = alt.Chart(daily).mark_line(point=True).encode(
-            x=alt.X('date:T', title='Дата'),
+        # 2. Распределение по часам (если применен скрипт рандомизации)
+        st.subheader("Активность по часам")
+        df['hour'] = df['created_at'].dt.hour
+        hour_counts = df['hour'].value_counts().sort_index().reset_index(name='count').rename(columns={'index': 'hour'})
+        hist = alt.Chart(hour_counts).mark_bar().encode(
+            x=alt.X('hour:O', title='Час суток'),
             y='count:Q',
-            tooltip=['date', 'count']
+            tooltip=['hour', 'count']
         )
-        roll = alt.Chart(daily).mark_line(strokeDash=[4, 2]).encode(
-            x='date:T', y='rolling:Q', tooltip=['date', 'rolling']
-        )
-        st.altair_chart((line + roll), use_container_width=True)
+        st.altair_chart(hist, use_container_width=True)
 
-        # 4. Боксплот длины текста по эмоциям
+        # 3. Боксплот длины текста по эмоциям
         st.subheader("Длина заметок по эмоциям")
         df['text_len'] = df['text'].str.len()
         box = alt.Chart(df).mark_boxplot().encode(
@@ -398,19 +379,13 @@ if page == "Аналитика":
         )
         st.altair_chart(box, use_container_width=True)
 
-        # 5. Распределение по времени суток
-        st.subheader("Распределение по часам")
-        hour_counts = df['hour'].value_counts().sort_index().reset_index(name='count').rename(columns={'index': 'hour'})
-        hist = alt.Chart(hour_counts).mark_bar().encode(
-            x=alt.X('hour:O', title='Час суток'), y='count:Q', tooltip=['hour', 'count']
-        )
-        st.altair_chart(hist, use_container_width=True)
-
-        # 6. Общая статистика
+        # 4. Общая статистика
         st.subheader("Общая статистика")
-        most_common = counts.loc[counts['count'].idxmax(), 'emotion']
+        counts = df['emotion_ru'].value_counts().reset_index()
+        most_common = counts.iloc[0]['emotion_ru'] if not counts.empty else "Нет данных"
+
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("Всего записей", df.shape[0])
         col2.metric("Уникальных эмоций", df['emotion'].nunique())
         col3.metric("Чаще всего", most_common)
-        col4.metric("Средняя длина", f"{df['text_len'].mean():.1f} символов")
+        col4.metric("Средняя длина", f"{df['text'].str.len().mean():.1f} символов")
