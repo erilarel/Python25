@@ -29,7 +29,6 @@ python25/
 ├─ diary.db               # SQLite‑файл (игнорируется Git‑ом)
 ├─ requirements.txt       # зависимости
 ├─ pytest.ini             # настройки pytest / asyncio
-└─ README_IGOR_PART.md    # этот файл
 ```
 
 ---
