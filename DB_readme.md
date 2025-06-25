@@ -59,44 +59,6 @@ python25/
 
 ---
 
-## Быстрый старт
-
-### 1. Установка и окружение (Windows PowerShell)
-
-```powershell
-cd A:\python_projects\Python25
-python -m venv venv
-./venv/Scripts/Activate.ps1
-pip install -r requirements.txt
-```
-
-*Если видите ошибку ExecutionPolicy:*
-
-```powershell
-Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
-```
-
-### 2. Миграции (prod / CI)
-
-```powershell
-alembic upgrade head
-```
-
-### 3. Обновление Alembic
-
-```powershell
-alembic upgrade head
-```
-
-### 4. Запуск unit‑тестов
-
-```powershell
-pytest -q
-# Вывод: .......... (10 passed in X.XXs)
-```
-
----
-
 ## Функционал слоя ORM + DB
 
 ### Модель `Note`
