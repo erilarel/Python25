@@ -20,7 +20,6 @@ python load_model.py
 streamlit run main.py
 ```
 ## 🏃 Запуск
-*main.py
 ```bash
 streamlit run streamlit run main.py
 ```
